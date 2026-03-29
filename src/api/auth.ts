@@ -13,6 +13,25 @@ interface LoginResponseShape {
   }
 }
 
+interface ApiResponse<T = unknown> {
+  code?: number
+  msg?: string
+  message?: string
+  data?: T
+}
+
+interface MerchantNameCheckResult {
+  exists?: boolean
+  available?: boolean
+}
+
+interface MerchantRegisterPayload {
+  merchant_name: string
+  username: string
+  password: string
+  phone: string
+}
+
 export const login = async (payload: LoginPayload) => {
   const response = await http.post<LoginResponseShape>('/admin/employee/login', payload)
   const token = response.data.token ?? response.data.data?.token
@@ -23,4 +42,36 @@ export const login = async (payload: LoginPayload) => {
 
   setToken(token)
   return token
+}
+
+export const checkMerchantNameAvailable = async (merchantName: string) => {
+  const response = await http.get<ApiResponse<MerchantNameCheckResult> | MerchantNameCheckResult>(
+    '/admin/merchant/check-name',
+    {
+      params: {
+        merchant_name: merchantName,
+      },
+    },
+  )
+
+  const body = response.data
+  const result = 'data' in (body as object) ? (body as ApiResponse<MerchantNameCheckResult>).data : body
+
+  if (!result) {
+    return true
+  }
+
+  if (typeof result.available === 'boolean') {
+    return result.available
+  }
+
+  if (typeof result.exists === 'boolean') {
+    return !result.exists
+  }
+
+  return true
+}
+
+export const registerMerchant = async (payload: MerchantRegisterPayload) => {
+  await http.post<ApiResponse>('/admin/merchant/register', payload)
 }

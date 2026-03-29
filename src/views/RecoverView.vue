@@ -6,7 +6,6 @@ import { Phone, User } from '@element-plus/icons-vue'
 interface RecoverForm {
   username: string
   phone: string
-  verifyCode: string
 }
 
 const recoverFormRef = ref<FormInstance>()
@@ -15,13 +14,11 @@ const loading = ref(false)
 const recoverForm = reactive<RecoverForm>({
   username: '',
   phone: '',
-  verifyCode: '',
 })
 
 const rules = reactive<FormRules<RecoverForm>>({
   username: [{ required: true, message: '请输入商家账号', trigger: 'blur' }],
   phone: [{ required: true, message: '请输入绑定手机号', trigger: 'blur' }],
-  verifyCode: [{ required: true, message: '请输入验证码', trigger: 'blur' }],
 })
 
 const handleRecover = async () => {
@@ -77,15 +74,6 @@ const handleRecover = async () => {
                 <el-icon><Phone /></el-icon>
               </template>
             </el-input>
-          </el-form-item>
-
-          <el-form-item label="短信验证码" prop="verifyCode">
-            <el-input
-              v-model="recoverForm.verifyCode"
-              placeholder="请输入短信验证码"
-              clearable
-              @keyup.enter="handleRecover"
-            />
           </el-form-item>
 
           <el-form-item>

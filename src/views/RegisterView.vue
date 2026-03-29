@@ -3,9 +3,10 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Lock, Phone, User } from '@element-plus/icons-vue'
+import { checkMerchantNameAvailable, registerMerchant } from '@/api/auth'
 
 interface RegisterForm {
-  shopName: string
+  merchant_name: string
   username: string
   phone: string
   password: string
@@ -15,33 +16,123 @@ interface RegisterForm {
 const router = useRouter()
 const registerFormRef = ref<FormInstance>()
 const loading = ref(false)
+const checkingName = ref(false)
+const merchantNameAvailable = ref<boolean | null>(null)
+const merchantNameTip = ref('')
 
 const registerForm = reactive<RegisterForm>({
-  shopName: '',
+  merchant_name: '',
   username: '',
   phone: '',
   password: '',
   confirmPassword: '',
 })
 
+const usernamePattern = /^[A-Za-z0-9_]+$/
+const phonePattern = /^1\d{10}$/
+
+const resetMerchantNameCheck = () => {
+  merchantNameAvailable.value = null
+  merchantNameTip.value = ''
+}
+
+const checkMerchantName = async () => {
+  const name = registerForm.merchant_name.trim()
+
+  if (!name) {
+    resetMerchantNameCheck()
+    return
+  }
+
+  checkingName.value = true
+
+  try {
+    const available = await checkMerchantNameAvailable(name)
+    merchantNameAvailable.value = available
+    merchantNameTip.value = available ? '该商家名称可创建' : '商家名称已存在，请更换'
+  } catch {
+    merchantNameAvailable.value = null
+    merchantNameTip.value = '商家名称校验失败，请稍后重试'
+  } finally {
+    checkingName.value = false
+  }
+}
+
+const validateMerchantName = (
+  _rule: unknown,
+  value: string,
+  callback: (error?: Error) => void,
+) => {
+  if (!value?.trim()) {
+    callback(new Error('请输入商家名称'))
+    return
+  }
+
+  if (merchantNameAvailable.value === false) {
+    callback(new Error('商家名称已存在'))
+    return
+  }
+
+  callback()
+}
+
+const validateUsername = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (!value?.trim()) {
+    callback(new Error('请输入登录账号'))
+    return
+  }
+
+  if (!usernamePattern.test(value)) {
+    callback(new Error('登录账号仅支持字母、数字、下划线'))
+    return
+  }
+
+  callback()
+}
+
+const validatePhone = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (!value?.trim()) {
+    callback(new Error('请输入联系电话'))
+    return
+  }
+
+  if (!phonePattern.test(value)) {
+    callback(new Error('请输入正确的 11 位手机号'))
+    return
+  }
+
+  callback()
+}
+
+const validateConfirmPassword = (
+  _rule: unknown,
+  value: string,
+  callback: (error?: Error) => void,
+) => {
+  if (!value) {
+    callback(new Error('请再次输入密码'))
+    return
+  }
+
+  if (value !== registerForm.password) {
+    callback(new Error('两次输入的密码不一致'))
+    return
+  }
+
+  callback()
+}
+
 const rules = reactive<FormRules<RegisterForm>>({
-  shopName: [{ required: true, message: '请输入店铺名称', trigger: 'blur' }],
-  username: [{ required: true, message: '请输入登录账号', trigger: 'blur' }],
-  phone: [{ required: true, message: '请输入手机号', trigger: 'blur' }],
+  merchant_name: [
+    { required: true, message: '请输入商家名称', trigger: 'blur' },
+    { validator: validateMerchantName, trigger: 'blur' },
+  ],
+  username: [{ validator: validateUsername, trigger: 'blur' }],
+  phone: [{ validator: validatePhone, trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   confirmPassword: [
     { required: true, message: '请再次输入密码', trigger: 'blur' },
-    {
-      validator: (_, value, callback) => {
-        if (value !== registerForm.password) {
-          callback(new Error('两次输入的密码不一致'))
-          return
-        }
-
-        callback()
-      },
-      trigger: 'blur',
-    },
+    { validator: validateConfirmPassword, trigger: 'blur' },
   ],
 })
 
@@ -58,9 +149,27 @@ const handleRegister = async () => {
     loading.value = true
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 700))
-      ElMessage.success('注册申请已提交，待平台审核')
+      const available = await checkMerchantNameAvailable(registerForm.merchant_name.trim())
+
+      if (!available) {
+        merchantNameAvailable.value = false
+        merchantNameTip.value = '商家名称已存在，请更换'
+        await registerFormRef.value?.validateField('merchant_name')
+        loading.value = false
+        return
+      }
+
+      await registerMerchant({
+        merchant_name: registerForm.merchant_name.trim(),
+        username: registerForm.username.trim(),
+        password: registerForm.password,
+        phone: registerForm.phone.trim(),
+      })
+
+      ElMessage.success('注册成功，请登录商家后台')
       await router.push('/login')
+    } catch {
+      ElMessage.error('注册失败，请检查信息后重试')
     } finally {
       loading.value = false
     }
@@ -85,24 +194,37 @@ const handleRegister = async () => {
         </template>
 
         <el-form ref="registerFormRef" :model="registerForm" :rules="rules" label-position="top">
-          <el-form-item label="店铺名称" prop="shopName">
-            <el-input v-model="registerForm.shopName" placeholder="请输入店铺名称" clearable>
+          <el-form-item label="商家名称" prop="merchant_name">
+            <el-input
+              v-model="registerForm.merchant_name"
+              placeholder="请输入商家名称"
+              clearable
+              @input="resetMerchantNameCheck"
+              @blur="checkMerchantName"
+            >
               <template #prefix>
                 <el-icon><User /></el-icon>
               </template>
             </el-input>
+            <div
+              v-if="merchantNameTip"
+              class="merchant-name-tip"
+              :class="merchantNameAvailable === true ? 'success' : 'error'"
+            >
+              {{ checkingName ? '正在校验商家名称...' : merchantNameTip }}
+            </div>
           </el-form-item>
 
           <el-form-item label="登录账号" prop="username">
-            <el-input v-model="registerForm.username" placeholder="请输入商家账号" clearable>
+            <el-input v-model="registerForm.username" placeholder="请输入登录账号（字母/数字/下划线）" clearable>
               <template #prefix>
                 <el-icon><User /></el-icon>
               </template>
             </el-input>
           </el-form-item>
 
-          <el-form-item label="手机号" prop="phone">
-            <el-input v-model="registerForm.phone" placeholder="请输入手机号" clearable>
+          <el-form-item label="联系电话" prop="phone">
+            <el-input v-model="registerForm.phone" placeholder="请输入联系电话" clearable>
               <template #prefix>
                 <el-icon><Phone /></el-icon>
               </template>
@@ -156,3 +278,19 @@ const handleRegister = async () => {
     </footer>
   </div>
 </template>
+
+<style scoped>
+.merchant-name-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.merchant-name-tip.success {
+  color: #2d9d4d;
+}
+
+.merchant-name-tip.error {
+  color: #f56c6c;
+}
+</style>
